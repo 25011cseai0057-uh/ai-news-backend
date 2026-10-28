@@ -10,34 +10,9 @@ app.get("/", (req, res) => {
   res.send("AI News Backend is working!");
 });
 
-// Get live news
 app.get("/api/news", async (req, res) => {
   try {
     const category = req.query.category || "general";
-
-    const allowed = [
-      "business",
-      "entertainment",
-      "health",
-      "science",
-      "sports",
-      "technology",
-      "general"
-    ];
-
-    if (!allowed.includes(category)) {
-      return res.status(400).json({
-        error: "Invalid category"
-      });
-    }
-
-    const key = process.env.NEWS_API_KEY;
-
-    if (!key) {
-      return res.status(500).json({
-        error: "News API key is missing"
-      });
-    }
 
     const queries = {
       general: "India news",
@@ -49,10 +24,18 @@ app.get("/api/news", async (req, res) => {
       technology: "India technology"
     };
 
-    const url = new URL(
-      "https://newsapi.org/v2/everything"
-    );
+    if (!queries[category]) {
+      return res.status(400).json({ error: "Invalid category" });
+    }
 
+    const key = process.env.NEWS_API_KEY;
+    if (!key) {
+      return res.status(500).json({
+        error: "NEWS_API_KEY is missing in Render"
+      });
+    }
+
+    const url = new URL("https://newsapi.org/v2/everything");
     url.searchParams.set("q", queries[category]);
     url.searchParams.set("language", "en");
     url.searchParams.set("sortBy", "publishedAt");
@@ -71,58 +54,90 @@ app.get("/api/news", async (req, res) => {
       });
     }
 
-    res.json(data);
+    const articles = (data.articles || []).map(article => ({
+      ...article,
+      description: article.description || "",
+      content: article.content || article.description || ""
+    }));
+
+    res.json({ ...data, articles });
   } catch (error) {
-    res.status(500).json({
-      error: "Could not load news"
-    });
+    res.status(500).json({ error: "Could not load news" });
   }
 });
 
-// Extract the main sentences from an article
-app.post("/api/summarize", (req, res) => {
-  const text = req.body.text;
+app.post("/api/summarize", async (req, res) => {
+  try {
+    const text = String(req.body.text || "").trim();
 
-  if (!text || typeof text !== "string") {
-    return res.status(400).json({
-      error: "Please provide news article text"
+    if (text.length < 50) {
+      return res.status(400).json({
+        error: "Please provide a longer news article."
+      });
+    }
+
+    const token = process.env.HF_TOKEN;
+
+    if (!token) {
+      return res.status(500).json({
+        error: "Add HF_TOKEN in Render Environment."
+      });
+    }
+
+    const aiResponse = await fetch(
+      "https://router.huggingface.co/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "Qwen/Qwen2.5-7B-Instruct",
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a news editor. Summarize the supplied article in simple English. Identify the main event, who is involved, what happened, why it matters, and important numbers or dates if present. Give 3 to 5 concise bullet points and one short overall summary. Do not repeat the article word for word. Do not invent facts. If information is missing, do not guess."
+            },
+            {
+              role: "user",
+              content: text.slice(0, 12000)
+            }
+          ],
+          max_tokens: 300,
+          temperature: 0.2
+        })
+      }
+    );
+
+    const result = await aiResponse.json();
+
+    if (!aiResponse.ok) {
+      return res.status(aiResponse.status).json({
+        error: result.error?.message ||
+          result.error ||
+          "AI summarization failed."
+      });
+    }
+
+    const summary = result.choices?.[0]?.message?.content;
+
+    if (!summary) {
+      return res.status(502).json({
+        error: "AI returned an empty summary."
+      });
+    }
+
+    res.json({ summary });
+  } catch (error) {
+    res.status(500).json({
+      error: "Could not summarize the news."
     });
   }
-
-  const cleanText = text
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const sentences = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
-
-  if (sentences.length === 0) {
-    return res.json({
-      summary: cleanText
-    });
-  }
-
-  const important = sentences
-    .map((sentence, index) => ({
-      sentence: sentence.trim(),
-      index,
-      score: sentence.trim().split(/\s+/).length
-    }))
-    .filter(item => item.score >= 5)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-    .sort((a, b) => a.index - b.index)
-    .map(item => item.sentence);
-
-  res.json({
-    summary: (important.length
-      ? important
-      : sentences.slice(0, 2).map(s => s.trim())
-    ).join(" ")
-  });
 });
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, "0.0.0.0", () => {
   console.log("AI News Backend started");
 });
