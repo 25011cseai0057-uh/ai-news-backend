@@ -1,0 +1,196 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Live News Summarizer</title>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#edf4fc;color:#172b45}
+header{background:#1769bd;color:white;text-align:center;padding:22px 12px}
+header h1{margin:0;font-size:25px}
+header p{margin:8px 0 0}
+main{max-width:850px;margin:auto;padding:16px}
+.categories{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+button{border:0;border-radius:9px;padding:12px;background:#1769bd;color:white;font-size:14px;cursor:pointer}
+button:disabled{opacity:.6}
+.active{background:#103e79}
+#refresh{width:100%;margin-bottom:14px}
+#status{font-size:14px;color:#53657a;margin:10px 0}
+.card{background:white;border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 3px 12px #00000012}
+.card h3{margin:0 0 8px;font-size:18px;color:#164d85}
+.meta{font-size:12px;color:#64748b;margin-bottom:10px}
+.description{line-height:1.5}
+.summary{background:#e4f2ff;padding:12px;border-radius:9px;margin-top:12px;line-height:1.55;white-space:pre-wrap}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+a{color:#1769bd;font-weight:bold}
+footer{text-align:center;padding:22px;color:#64748b;font-size:13px}
+</style>
+</head>
+
+<body>
+<header>
+  <h1>📰 AI Live News</h1>
+  <p>Latest news • Simple AI summaries</p>
+  <p id="clock"></p>
+</header>
+
+<main>
+  <div class="categories">
+    <button class="active" data-cat="general">🇮🇳 India</button>
+    <button data-cat="technology">💻 Technology</button>
+    <button data-cat="sports">🏏 Sports</button>
+    <button data-cat="business">💼 Business</button>
+    <button data-cat="health">❤️ Health</button>
+    <button data-cat="science">🔬 Science</button>
+    <button data-cat="entertainment">🎬 Entertainment</button>
+  </div>
+
+  <button id="refresh">🔄 Refresh News</button>
+  <div id="status">Loading news...</div>
+  <section id="news"></section>
+</main>
+
+<footer>AI Live News Summarizer</footer>
+
+<script>
+const API = "https://ai-news-backend-e51i.onrender.com";
+let currentCategory = "general";
+
+function updateClock(){
+  document.getElementById("clock").textContent =
+    new Date().toLocaleString();
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+const newsBox = document.getElementById("news");
+const statusBox = document.getElementById("status");
+const refreshButton = document.getElementById("refresh");
+
+async function loadNews(){
+  refreshButton.disabled = true;
+  statusBox.textContent = "Loading latest news...";
+  newsBox.innerHTML = "";
+
+  try{
+    const response = await fetch(
+      `${API}/api/news?category=${encodeURIComponent(currentCategory)}`
+    );
+    const data = await response.json();
+
+    if(!response.ok) throw new Error(data.error || "News request failed");
+
+    const articles = data.articles || [];
+    if(!articles.length){
+      statusBox.textContent = "No articles found. Please try Refresh News later.";
+      return;
+    }
+
+    statusBox.textContent = `Showing ${articles.length} news articles`;
+
+    articles.forEach((article,index)=>{
+      const card = document.createElement("article");
+      card.className = "card";
+
+      const title = document.createElement("h3");
+      title.textContent = article.title || "News article";
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent =
+        `${article.source?.name || "News source"} • ${
+          article.publishedAt
+            ? new Date(article.publishedAt).toLocaleString()
+            : ""
+        }`;
+
+      const description = document.createElement("p");
+      description.className = "description";
+      description.textContent =
+        article.description || "Open the full article for details.";
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+
+      const summarize = document.createElement("button");
+      summarize.textContent = "✨ AI Main-Point Summary";
+
+      const summaryBox = document.createElement("div");
+      summaryBox.className = "summary";
+      summaryBox.hidden = true;
+
+      summarize.onclick = async ()=>{
+        summarize.disabled = true;
+        summarize.textContent = "Creating summary...";
+        summaryBox.hidden = false;
+        summaryBox.textContent = "AI is identifying the main points...";
+
+        const articleText = [
+          "Title: " + (article.title || ""),
+          "Description: " + (article.description || ""),
+          "Article content: " + (article.content || ""),
+          "URL: " + (article.url || "")
+        ].join("\n");
+
+        try{
+          const response = await fetch(`${API}/api/summarize`,{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({text:articleText})
+          });
+
+          const result = await response.json();
+          if(!response.ok){
+            throw new Error(result.error || "Summary failed");
+          }
+
+          summaryBox.textContent = "🧠 Main points:\n" + result.summary;
+          summarize.textContent = "🔄 Generate Again";
+        }catch(error){
+          summaryBox.textContent =
+            "Could not create AI summary: " + error.message;
+          summarize.textContent = "✨ Try Again";
+        }finally{
+          summarize.disabled = false;
+        }
+      };
+
+      actions.appendChild(summarize);
+
+      if(article.url){
+        const link = document.createElement("a");
+        link.href = article.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "Read full news ↗";
+        actions.appendChild(link);
+      }
+
+      card.append(title,meta,description,actions,summaryBox);
+      newsBox.appendChild(card);
+    });
+  }catch(error){
+    statusBox.textContent = "Could not load news: " + error.message;
+  }finally{
+    refreshButton.disabled = false;
+  }
+}
+
+document.querySelectorAll("[data-cat]").forEach(button=>{
+  button.addEventListener("click",()=>{
+    currentCategory = button.dataset.cat;
+    document.querySelectorAll("[data-cat]").forEach(item=>
+      item.classList.toggle("active",item===button)
+    );
+    loadNews();
+  });
+});
+
+refreshButton.addEventListener("click",loadNews);
+loadNews();
+</script>
+</body>
+</html>
