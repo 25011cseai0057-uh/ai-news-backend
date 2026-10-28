@@ -3,7 +3,6 @@ const express = require("express");
 const cors = require("cors");
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
@@ -11,9 +10,11 @@ app.get("/", (req, res) => {
   res.send("AI News Backend is working!");
 });
 
+// Get live news
 app.get("/api/news", async (req, res) => {
   try {
     const category = req.query.category || "general";
+
     const allowed = [
       "business",
       "entertainment",
@@ -38,10 +39,6 @@ app.get("/api/news", async (req, res) => {
       });
     }
 
-    const url = new URL(
-      "https://newsapi.org/v2/everything"
-    );
-
     const queries = {
       general: "India news",
       business: "India business",
@@ -52,15 +49,17 @@ app.get("/api/news", async (req, res) => {
       technology: "India technology"
     };
 
+    const url = new URL(
+      "https://newsapi.org/v2/everything"
+    );
+
     url.searchParams.set("q", queries[category]);
     url.searchParams.set("language", "en");
     url.searchParams.set("sortBy", "publishedAt");
     url.searchParams.set("pageSize", "20");
 
     const response = await fetch(url, {
-      headers: {
-        "X-Api-Key": key
-      }
+      headers: { "X-Api-Key": key }
     });
 
     const data = await response.json();
@@ -78,6 +77,48 @@ app.get("/api/news", async (req, res) => {
       error: "Could not load news"
     });
   }
+});
+
+// Extract the main sentences from an article
+app.post("/api/summarize", (req, res) => {
+  const text = req.body.text;
+
+  if (!text || typeof text !== "string") {
+    return res.status(400).json({
+      error: "Please provide news article text"
+    });
+  }
+
+  const cleanText = text
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const sentences = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
+
+  if (sentences.length === 0) {
+    return res.json({
+      summary: cleanText
+    });
+  }
+
+  const important = sentences
+    .map((sentence, index) => ({
+      sentence: sentence.trim(),
+      index,
+      score: sentence.trim().split(/\s+/).length
+    }))
+    .filter(item => item.score >= 5)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .sort((a, b) => a.index - b.index)
+    .map(item => item.sentence);
+
+  res.json({
+    summary: (important.length
+      ? important
+      : sentences.slice(0, 2).map(s => s.trim())
+    ).join(" ")
+  });
 });
 
 const PORT = process.env.PORT || 3000;
