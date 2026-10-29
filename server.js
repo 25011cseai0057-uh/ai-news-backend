@@ -76,56 +76,52 @@ app.post("/api/summarize", async (req, res) => {
       });
     }
 
-    const token = process.env.HF_TOKEN;
+    const key = process.env.GEMINI_API_KEY;
 
-    if (!token) {
+    if (!key) {
       return res.status(500).json({
-        error: "Add HF_TOKEN in Render Environment."
+        error: "GEMINI_API_KEY is missing in Render."
       });
     }
 
-    const aiResponse = await fetch(
-      "https://router.huggingface.co/v1/chat/completions",
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "x-goog-api-key": key
         },
         body: JSON.stringify({
-          model: "openai/gpt-oss-120b:fastest",
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a news editor. Summarize the supplied article in simple English. Identify the main event, who is involved, what happened, why it matters, and important numbers or dates if present. Give 3 to 5 concise bullet points and one short overall summary. Do not repeat the article word for word. Do not invent facts. If information is missing, do not guess."
-            },
-            {
-              role: "user",
-              content: text.slice(0, 12000)
-            }
-          ],
-          max_tokens: 300,
-          temperature: 0.2
+          contents: [{
+            parts: [{
+              text: "Summarize this news in simple English. Give 3 to 5 bullet points and one short overall summary. Do not invent facts.\n\n" +
+                text.slice(0, 12000)
+            }]
+          }],
+          generationConfig: {
+            maxOutputTokens: 300,
+            temperature: 0.2
+          }
         })
       }
     );
 
-    const result = await aiResponse.json();
+    const data = await response.json();
 
-    if (!aiResponse.ok) {
-      return res.status(aiResponse.status).json({
-        error: result.error?.message ||
-          result.error ||
-          "AI summarization failed."
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: data.error?.message || "Gemini summary failed."
       });
     }
 
-    const summary = result.choices?.[0]?.message?.content;
+    const summary = data.candidates?.[0]?.content?.parts
+      ?.map(part => part.text || "")
+      .join("\n");
 
     if (!summary) {
       return res.status(502).json({
-        error: "AI returned an empty summary."
+        error: "Gemini returned an empty summary."
       });
     }
 
